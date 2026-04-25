@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: mailto:contact@counterscarp.io
+    about: For security vulnerabilities, please email us directly instead of opening a public issue.
+  - name: License & Billing Support
+    url: mailto:contact@counterscarp.io
+    about: For license activation, billing, or account issues.
+  - name: Documentation
+    url: https://counterscarp.io/docs
+    about: Check the documentation before opening an issue.
