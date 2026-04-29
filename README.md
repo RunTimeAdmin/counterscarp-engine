@@ -1,4 +1,4 @@
-# Counterscarp Security Engine
+# Counterscarp&#8482; Security Engine
 
 **Production-ready smart contract security platform — 21 integrated analyzers, configurable rules, and professional audit reports.**
 
@@ -61,7 +61,7 @@ counterscarp --gui  # Launch local web interface
 docker run --rm \
   -v /path/to/contracts:/scan \
   -v /path/to/reports:/output \
-  counterscarp-engine:5.0.3 \
+  counterscarp-engine:5.1.0 \
   --target /scan --output-dir /output --report
 ```
 
@@ -95,7 +95,7 @@ Launches a local Tkinter desktop interface. Provides 12 analyzer toggles for gra
 
 ## Solana/Anchor Security Analysis
 
-### Coverage (v5.0.3)
+### Coverage (v5.1.0)
 
 35 Rust/Anchor security patterns across 7 categories:
 
@@ -222,6 +222,6 @@ Threat intelligence: Code4rena · Immunefi · Solodit · Neodyme · OtterSec · 
 
 ---
 
-**Version:** 5.0.3 | **Chains:** EVM + Solana | **Analyzers:** 21 | **Patterns:** 34 EVM + 35 Solana
+**Version:** 5.1.0 | **Chains:** EVM + Solana | **Analyzers:** 21 | **Patterns:** 34 EVM + 35 Solana
 
 **⭐ If this helped you find bugs, please star the repo!**

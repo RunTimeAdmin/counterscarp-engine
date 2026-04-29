@@ -5,6 +5,115 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v5.1.0 — 2026-04-29
+
+### Solana/Anchor Analyzer — Complete Implementation
+- **40 security patterns** across 7 categories: Account Validation, CPI Security, Arithmetic & Logic, State Management, Access Control, Token Security, General Validation
+- New `SolanaAnalyzer` class encapsulating discovery, scanning, IDL validation, and cargo-audit
+- Full IDL validator integration — `idl_validator.validate_idl()` wired into analysis pipeline
+- 9 new patterns added: `AUTHORITY_PUBKEY_MISMATCH`, `MISSING_MULTISIG_UPGRADE`, `UNSAFE_NARROWING_CAST`, `UNVALIDATED_SPL_TOKEN_PROGRAM`, `TWO_STEP_TRANSFER_NOT_USED`, `AUTHORITY_IS_DEFAULT`, `CPI_ACCOUNT_LAMPORT_BALANCE_MISMATCH`, `CPI_RETURN_VALUE_NOT_CHECKED`, `SIGN_CHANGE_WITHOUT_CHECK`
+- `rule_id` property on `SolanaFinding` for proper orchestrator integration
+- Enhanced severity aggregation across pattern, IDL, and dependency findings
+- CLI: `counterscarp --chain solana --solana-root /path/to/project`
+
+### Security Hardening (V4 Code Review Remediation)
+- **HF-V4-01**: Block PAYG users with zero credits from free scans
+- **HF-V4-02**: Require authentication or license key for unauthenticated scan requests
+- **MF-V4-01**: Production config validation — PAYG price IDs (warning) + TOTP encryption key (required)
+- **MF-V4-02**: Thread-safe session map with `_session_map_lock` and atomic file writes
+
+### Marketing & Documentation
+- CLI vs Webapp feature differentiation badges on all pricing/feature pages
+- Honest about page timeline reflecting actual development history
+- Removed false "zero false positives" claims across all pages
+- Standardized analyzer count messaging: "14 free, up to 21 with Pro"
+- Bidirectional navigation between app.counterscarp.io and counterscarp.io
+
+## v5.0.7 — 2026-04-28
+
+### Added
+- **Pay-As-You-Go scan packs**: One-time purchase credit packs (Starter 1/$9.99, Standard 5/$29.99, Pro Pack 15/$69.99)
+- Atomic credit consumption with thread-safe double-spend prevention
+- Stripe one-time payment checkout integration (`mode="payment"`)
+- Webhook fulfillment for PAYG credit grants
+- Credit gate in scan handler — PAYG users consume 1 credit per audit
+- Credit balance badges on upload and dashboard pages
+- New templates: payg_success.html, payg_no_credits.html
+- PAYG section in pricing page with 3 pack cards
+- Comprehensive PAYG test suite (test_payg.py, test_stripe_payg.py)
+
+### Changed
+- TIER_HIERARCHY now includes PAYG between Community and Developer
+- pricing.html extended with Pay-As-You-Go section
+- docker-compose.yml includes STRIPE_PAYG_*_PRICE_ID env vars
+
+## v5.0.6 — 2026-04-28
+
+### Features
+- **FS-06**: Audit trail logging — append-only JSONL log for all license operations (`data/audit_log.jsonl`)
+- **FS-04**: Stripe webhook event idempotency — Redis-backed dedup with file fallback
+- **FS-02**: Per-user audit history dashboard — `/dashboard` with paginated scan history
+- **FS-03**: Rate limit headers — `X-RateLimit-Limit/Remaining/Reset` on all rate-limited endpoints
+- **FS-01**: Async audit processing — `arq` Redis job queue with sync fallback and progress polling
+- **FS-05**: TOTP/2FA for admin accounts — `pyotp` enrollment, challenge flow, Fernet-encrypted secrets
+- **FS-07**: Grace period countdown notification — dismissible banner in web UI
+
+### Fixes
+- Docker: Medusa build switched from `go install` to `git clone` + `go build` (Go replace directive compat)
+- Docker: Added `[web]` extras to pip install for full webapp support in container
+- Removed stale `pytest.ini` (merged config into `pyproject.toml`)
+- Fixed `threading.Lock` deadlock in license_api.py (changed to `RLock`)
+- Fixed mypy variable shadowing in main.py Slither integration
+
+## v5.0.5 — 2026-04-25
+
+### Major Changes
+
+- **H1: Orchestrator Phase Architecture** — Refactored the monolithic 1,361-line `main()` function into a clean phase-based architecture. New `ScanPhase` base class and `ScanContext` dataclass in `scan_phase.py`. 15 scan phases extracted into `phases/` package (6 modules: static_analysis, fuzzing, heuristic, analysis, enrichment, reporting). Orchestrator main() reduced to ~200 lines with a registry-driven phase loop. Full backward compatibility preserved: same CLI, same state checkpoints, same resume behavior.
+
+- **M6: Async I/O** — Added async subprocess execution via `async_subprocess.py` with timeout-aware `run_tool()` coroutine. All scan phases gained `run_async()` methods with thread-executor fallback. Independent phases (Slither+Aderyn, FoundryFuzz+MedusaFuzz) now run concurrently via `asyncio.gather()`. Webapp audit endpoint converted to non-blocking async Slither analysis.
+
+- **M9: Redis Rate Limiter** — Added `RedisRateLimiter` with sliding-window algorithm backed by Redis sorted sets, with automatic in-memory fallback when Redis is unavailable. Applied rate limits to 5 endpoint groups: login (5/15min), registration (3/hr), audit (10/hr), license API (100/hr), admin (30/hr). Trusted proxy validation for X-Forwarded-For header.
+
+### Fixes
+
+- Fixed plugin phase ordering to run after heuristic phase (was incorrectly concurrent)
+- Fixed async resume cache restoration for partially-completed phase groups
+- Replaced deprecated `asyncio.get_event_loop()` with `asyncio.get_running_loop()` across all async code
+- Updated report_generator.pyi type stubs with missing Finding fields and function signatures
+
+## [5.0.4] - 2026-04-25
+
+### Security
+- Subprocess path traversal validation with `Path.is_relative_to()` and `--` argument separator in webapp
+- PBKDF2-HMAC key derivation (100k iterations) for license cache signatures
+- DNS-aware grace period — reduced from 7 to 3 days, distinguishes network outage from targeted blocking
+
+### Performance
+- Lazy comment map initialization — O(n) comment state array only built when first match found, zero cost for files with no hits
+- Lazy `%s` log formatting on scanner hot path — eliminates f-string allocation when debug logging disabled
+
+### Changed
+- Compatible-release dependency pins (`~=`) replacing lower-bound-only (`>=`) in pyproject.toml
+- 62 `print()` calls converted to structured `logger.*` calls in orchestrator
+- Narrowed bare `except: pass` to specific exception types with debug logging
+- Per-instance RAG offline TTL (5min) prevents repeated failed network calls
+- Created `data/licenses.example.json` safe template, removed legacy `fix_version.py`
+
+### Post-5.0.4 Review Fixes
+
+#### Batch 1 — Quick Fixes (commit e162e46)
+- **M4**: Moved function-level imports to module top in `webapp/main.py` — eliminated redundant `import logging`, `from webapp.user_manager`, `from webapp.stripe_integration`, `from license_manager`, and `from datetime import date` inside route handlers
+- **M7**: Added `version` and `last_updated` metadata to `data/protocol_fingerprints.json`; `protocol_db.py` now logs loaded version and warns on legacy unversioned format; new test `test_load_versioned_format`
+- **M11**: Replaced TODO comments with ACTION REQUIRED markers in `inflation_scaffold.py` generated exploit templates
+- **L4**: Verified all Python subdirectories have `__init__.py` (all already present — no changes required)
+- **L6**: Centralized `LICENSE_PREFIXES` in `license_manager.py`; `webapp/main.py` now imports the constant instead of redefining it
+
+#### Batch 2 — Medium Fixes (commit f43ff0e)
+- **M2**: Added `refine: Optional[Callable]` field to `HeuristicRule` dataclass; extracted inline rule-specific post-match logic for BLOCK_TIMESTAMP_RANDOMNESS, HARDCODED_ADDRESS, and UNCHECKED_EXTERNAL_CALL into standalone refiner functions; replaced ~50 lines of `if rule.id ==` blocks with a single generic `rule.refine()` call
+- **M8**: Added pagination (`?page=&limit=`) to `/admin/users` and `/admin/licenses` endpoints in `webapp/auth.py` with `total`/`pages` metadata envelope; defaults to page=1, limit=50 for backward compatibility
+- **M10**: Separated `exceptions.py` imports from optional `logger.py` fallbacks across 9 modules (`fingerprint_scanner.py`, `config_loader.py`, `protocol_db.py`, `exploit_generator.py`, `embeddings.py`, `rag_engine.py`, `history_scanner.py`, `pipeline_generator.py`, `red_team_scan.py`) — core exceptions now always required, logger remains optional with stdlib fallback
+
 ## [5.0.3] - 2026-04-23
 
 ### Fixed
@@ -215,3 +324,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Migrated from open-source to commercial model with free Community tier
+
+---
+
+## Project History
+
+**Counterscarp Engine** was originally developed as **Garrison Engine** (later briefly known as **Sentinel Engine**) starting in late 2024. The project was conceived as an automated smart contract security analysis platform combining static analysis, heuristic scanning, and AI-augmented audit capabilities.
+
+### Timeline
+- **2024 Q4** — Initial development as Garrison Engine; core heuristic scanner, Slither integration, and CLI framework
+- **2025 Q1** — Rebranded to Sentinel Engine; added fingerprint scanning, exploit generation, and HTML/PDF reporting
+- **2025 Q2** — Rebranded to Counterscarp Engine (v3.0.0); domain moved to counterscarp.io; added RAG-powered audit copilot, protocol fingerprinting, and the webapp
+- **2025 Q3** — v4.x series: Stripe integration, license management, Docker distribution, VPS deployment
+- **2025 Q4–2026** — v5.x series: PyPI distribution, GitHub Actions CI/CD, comprehensive code review hardening
