@@ -1,0 +1,565 @@
+name: Counterscarp Security Audit
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:  # Manual trigger
+
+permissions:
+  contents: read
+  pull-requests: write  # To post comments
+  security-events: write  # For SARIF upload
+
+jobs:
+  # ========================================
+  # TEST JOB (Runs first)
+  # ========================================
+  test:
+    runs-on: ubuntu-latest
+    name: Run Tests
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev,web]"
+          solc-select install 0.8.19
+          solc-select use 0.8.19
+      
+      - name: Run pytest
+        run: |
+          pytest --tb=short -v --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=60 -m "not benchmark"
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Run performance benchmarks
+        if: success()
+        run: |
+          pytest tests/test_benchmarks.py --benchmark-only --benchmark-json=benchmark.json -v || true
+      
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ matrix.python-version }}
+          path: benchmark.json
+          if-no-files-found: ignore
+      
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            .coverage
+
+  # ========================================
+  # LINT AND TYPE CHECK (Runs after test)
+  # ========================================
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev,web]"
+      - name: Import smoke test
+        run: |
+          python -c "
+          import rag_engine, attack_graph, visualizer, history_scanner
+          import idl_validator, fingerprint_scanner, embeddings, protocol_db
+          import plugin_manager, exploit_generator, pipeline_generator
+          print('All modules importable')
+          "
+      - name: Install system deps for PDF extras
+        run: |
+          sudo apt-get update && sudo apt-get install -y libcairo2-dev pkg-config
+      - name: Test optional extras
+        run: |
+          pip install -e ".[pdf]"
+          python -c "from xhtml2pdf import pisa; print('xhtml2pdf OK')"
+          python -c "from report_generator import generate_pdf_report; print('PDF generator OK')"
+      - name: Run mypy
+        run: |
+          mypy *.py webapp/*.py --ignore-missing-imports
+
+  # ========================================
+  # CONTAINER SECURITY GUARDRAIL
+  # ========================================
+  container-security-guardrail:
+    runs-on: ubuntu-latest
+    needs: [test, lint-and-typecheck]
+    name: Container Security Guardrail
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      SNYK_ORG: ${{ secrets.SNYK_ORG }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
+      - name: Validate Snyk auth configuration
+        run: |
+          if [ -z "${SNYK_TOKEN}" ]; then
+            echo "SNYK_TOKEN is required for container security guardrail"
+            exit 1
+          fi
+          snyk auth "${SNYK_TOKEN}"
+
+      - name: Build container image for scan
+        run: |
+          docker build -t counterscarp-engine:ci -f Dockerfile .
+
+      - name: Enforce actionable critical/high policy (non-base)
+        run: |
+          snyk container test counterscarp-engine:ci \
+            --file=Dockerfile \
+            --severity-threshold=high \
+            --exclude-base-image-vulns \
+            --org="${SNYK_ORG:-runtimeadmin}"
+
+      - name: Advisory container report with allowlist context
+        if: always()
+        run: |
+          snyk container test counterscarp-engine:ci \
+            --file=Dockerfile \
+            --severity-threshold=low \
+            --org="${SNYK_ORG:-runtimeadmin}" \
+            > snyk-container-report.txt || true
+          {
+            echo ""
+            echo "Allowlist reference:"
+            echo "  docs/SECURITY_CONTAINER_ALLOWLIST.md"
+          } >> snyk-container-report.txt
+
+      - name: Upload container scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-container-report
+          path: snyk-container-report.txt
+
+  # ========================================
+  # BLOCKER CHECKS (Fail PR on issues)
+  # ========================================
+  blocker-checks:
+    needs: [test, lint-and-typecheck]
+    runs-on: ubuntu-latest
+    name: Critical & High Severity Blockers
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for upgrade diffs
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          solc-select install 0.8.19
+          solc-select use 0.8.19
+      
+      - name: Run Counterscarp (Blocker Mode)
+        id: blocker_scan
+        run: |
+          if [ -d "./contracts" ]; then
+            python orchestrator.py --target ./contracts --config counterscarp-pr.toml --report > scan_output.txt 2>&1 || true
+          else
+            echo "No contracts directory found, skipping analysis" > scan_output.txt
+          fi
+          cat scan_output.txt
+      
+      - name: Generate SARIF Report
+        id: sarif_gen
+        run: |
+          cat > generate_sarif.py << 'EOF'
+          import sys
+          import json
+          sys.path.insert(0, '.')
+          from report_generator import save_sarif_report
+
+          # Parse findings from scan output (simplified for demo)
+          findings = []
+          try:
+              with open('scan_output.txt', 'r') as f:
+                  content = f.read()
+                  # Count findings for metadata
+                  critical = content.count('[CRITICAL]')
+                  high = content.count('[HIGH]')
+                  medium = content.count('[MEDIUM]')
+                  low = content.count('[LOW]')
+                  print(f"Found: {critical} critical, {high} high, {medium} medium, {low} low")
+          except Exception as e:
+              print(f"Warning: Could not read scan output: {e}")
+
+          # Create minimal findings for SARIF (in production, this would parse actual output)
+          metadata = {
+              'project_name': '${{ github.event.repository.name }}',
+              'target_path': './contracts',
+              'timestamp': '${{ github.event.head_commit.timestamp }}'
+          }
+
+          # Save SARIF report (ALWAYS produces valid SARIF with runs array)
+          save_sarif_report(findings, 'counterscarp-report.sarif', metadata)
+          print(f'Generated SARIF report with {len(findings)} findings')
+
+          # Validate the generated SARIF
+          try:
+              with open('counterscarp-report.sarif', 'r') as f:
+                  data = json.load(f)
+              assert 'runs' in data and data['runs'] is not None, 'Invalid SARIF: missing runs'
+              assert isinstance(data['runs'], list), 'Invalid SARIF: runs is not an array'
+              print(f'Valid SARIF with {len(data.get("runs", []))} runs')
+          except Exception as e:
+              print(f'SARIF validation failed: {e}')
+              # Write a minimal valid SARIF as fallback
+              minimal_sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                  "runs": []
+              }
+              with open('counterscarp-report.sarif', 'w') as f:
+                  json.dump(minimal_sarif, f, indent=2)
+              print('Wrote minimal valid SARIF as fallback')
+          EOF
+          python generate_sarif.py
+
+      - name: Validate SARIF Structure
+        run: |
+          python -c "
+          import json
+          import sys
+          try:
+              with open('counterscarp-report.sarif', 'r') as f:
+                  data = json.load(f)
+              if 'runs' not in data or data['runs'] is None:
+                  print('ERROR: SARIF missing runs array')
+                  # Write minimal valid SARIF
+                  with open('counterscarp-report.sarif', 'w') as f:
+                      json.dump({'version': '2.1.0', 'runs': []}, f)
+                  print('Wrote minimal valid SARIF')
+              else:
+                  print(f'Valid SARIF with {len(data.get(\"runs\", []))} runs')
+          except Exception as e:
+              print(f'ERROR: {e}')
+              # Write minimal valid SARIF on any error
+              with open('counterscarp-report.sarif', 'w') as f:
+                  json.dump({'version': '2.1.0', 'runs': []}, f)
+              print('Wrote minimal valid SARIF after error')
+          "
+
+      - name: Upload SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('counterscarp-report.sarif') != ''
+        continue-on-error: true  # GHAS required for private repos; fails gracefully
+        with:
+          sarif_file: counterscarp-report.sarif
+          category: counterscarp-engine
+      
+      - name: Check for Blockers
+        id: check_blockers
+        run: |
+          touch blockers.txt
+          # Count CRITICAL and HIGH findings
+          CRITICAL=$(grep -c '\[CRITICAL\]' scan_output.txt 2>/dev/null || echo "0")
+          HIGH=$(grep -c '\[HIGH\]' scan_output.txt 2>/dev/null || echo "0")
+              
+          # Ensure values are integers
+          CRITICAL=$(echo "$CRITICAL" | tr -dc '0-9')
+          HIGH=$(echo "$HIGH" | tr -dc '0-9')
+          CRITICAL=${CRITICAL:-0}
+          HIGH=${HIGH:-0}
+              
+          TOTAL_BLOCKERS=$((CRITICAL + HIGH))
+              
+          echo "critical_count=${CRITICAL}" >> $GITHUB_OUTPUT
+          echo "high_count=${HIGH}" >> $GITHUB_OUTPUT
+          echo "total_blockers=${TOTAL_BLOCKERS}" >> $GITHUB_OUTPUT
+              
+          # Extract blocker findings
+          grep -E '\[(CRITICAL|HIGH)\]' scan_output.txt > blockers.txt 2>/dev/null || echo "No blockers found" > blockers.txt
+      
+      - name: Run Liar Detector (Blockers Only)
+        id: liar_blockers
+        run: |
+          if [ -d "./contracts" ]; then
+            find ./contracts -name "*.sol" -exec python intent_check.py {} \; > liar_output.txt 2>&1 || true
+          else
+            echo "No contracts directory found, skipping Liar Detector" > liar_output.txt
+          fi
+          LIAR_MISMATCHES=$(grep -c 'MISMATCH' liar_output.txt 2>/dev/null || echo "0")
+          LIAR_MISMATCHES=$(echo "$LIAR_MISMATCHES" | tr -dc '0-9')
+          LIAR_MISMATCHES=${LIAR_MISMATCHES:-0}
+          echo "liar_mismatches=${LIAR_MISMATCHES}" >> $GITHUB_OUTPUT
+          
+          if [ $LIAR_MISMATCHES -gt 0 ]; then
+            grep 'MISMATCH' liar_output.txt >> blockers.txt
+          fi
+      
+      - name: Run Upgrade Diff (If Applicable)
+        id: upgrade_blockers
+        run: |
+          touch upgrade_output.txt
+          CHANGED_SOL=$(git diff --name-only origin/main...HEAD | grep '\.sol$' || true)
+          UPGRADE_ISSUES=0
+          
+          if [ -n "$CHANGED_SOL" ]; then
+            for file in $CHANGED_SOL; do
+              if git show origin/main:$file > old_version.sol 2>/dev/null; then
+                python upgrade_diff.py old_version.sol $file >> upgrade_output.txt 2>&1 || true
+              fi
+            done
+            
+            # Check for storage collisions or auth removal
+            STORAGE_COLLISION=$(grep -c 'STORAGE_COLLISION' upgrade_output.txt 2>/dev/null || echo "0")
+            AUTH_REMOVED=$(grep -c 'AUTH_REMOVED' upgrade_output.txt 2>/dev/null || echo "0")
+            STORAGE_COLLISION=$(echo "$STORAGE_COLLISION" | tr -dc '0-9')
+            AUTH_REMOVED=$(echo "$AUTH_REMOVED" | tr -dc '0-9')
+            STORAGE_COLLISION=${STORAGE_COLLISION:-0}
+            AUTH_REMOVED=${AUTH_REMOVED:-0}
+            UPGRADE_ISSUES=$((STORAGE_COLLISION + AUTH_REMOVED))
+            
+            if [ $UPGRADE_ISSUES -gt 0 ]; then
+              grep -E '(STORAGE_COLLISION|AUTH_REMOVED)' upgrade_output.txt >> blockers.txt
+            fi
+          fi
+          
+          echo "upgrade_issues=$UPGRADE_ISSUES" >> $GITHUB_OUTPUT
+      
+      - name: Fail if Blockers Found
+        if: |
+          fromJson(steps.check_blockers.outputs.total_blockers || '0') > 0 ||
+          fromJson(steps.liar_blockers.outputs.liar_mismatches || '0') > 0 ||
+          fromJson(steps.upgrade_blockers.outputs.upgrade_issues || '0') > 0
+        run: |
+          echo "BLOCKER ISSUES FOUND:"
+          echo "   CRITICAL: ${{ steps.check_blockers.outputs.critical_count }}"
+          echo "   HIGH: ${{ steps.check_blockers.outputs.high_count }}"
+          echo "   Liar Detector Mismatches: ${{ steps.liar_blockers.outputs.liar_mismatches }}"
+          echo "   Upgrade Safety Issues: ${{ steps.upgrade_blockers.outputs.upgrade_issues }}"
+          echo ""
+          echo "Details:"
+          cat blockers.txt
+          exit 1
+      
+      - name: Upload Blocker Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blocker-report
+          path: |
+            blockers.txt
+            scan_output.txt
+            liar_output.txt
+            upgrade_output.txt
+  
+  # ========================================
+  # ADVISORY CHECKS (Comment only, no fail)
+  # ========================================
+  advisory-checks:
+    runs-on: ubuntu-latest
+    name: Advisory Findings (Non-Blocking)
+    needs: [test, lint-and-typecheck]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+      
+      - name: Run Heuristics (Advisory Mode)
+        continue-on-error: true
+        run: |
+          if [ -d "./contracts" ]; then
+            python heuristic_scanner.py ./contracts --config counterscarp-pr.toml > advisory_output.txt 2>&1 || true
+          else
+            echo "No contracts directory found, skipping heuristics" > advisory_output.txt
+          fi
+      
+      - name: Extract Advisory Findings
+        id: advisories
+        run: |
+          # Extract MEDIUM and LOW findings
+          grep -E '\[(MEDIUM|LOW|INFO)\]' advisory_output.txt > advisories.txt || echo "No advisory findings" > advisories.txt
+          
+          MEDIUM=$(grep -c '\[MEDIUM\]' advisory_output.txt 2>/dev/null || echo "0")
+          LOW=$(grep -c '\[LOW\]' advisory_output.txt 2>/dev/null || echo "0")
+          MEDIUM=$(echo "$MEDIUM" | tr -dc '0-9')
+          LOW=$(echo "$LOW" | tr -dc '0-9')
+          MEDIUM=${MEDIUM:-0}
+          LOW=${LOW:-0}
+          
+          echo "medium_count=${MEDIUM}" >> $GITHUB_OUTPUT
+          echo "low_count=${LOW}" >> $GITHUB_OUTPUT
+      
+      - name: Run Access Matrix (Advisory)
+        continue-on-error: true
+        run: |
+          if [ -d "./contracts" ]; then
+            find ./contracts -name "*.sol" -exec python access_matrix.py {} \; > access_output.txt 2>&1 || true
+            grep 'MEDIUM' access_output.txt >> advisories.txt || true
+          else
+            echo "No contracts directory found, skipping access matrix" > access_output.txt
+          fi
+      
+      - name: Post Advisory Comment
+        if: steps.advisories.outputs.medium_count > 0 || steps.advisories.outputs.low_count > 0
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            
+            const medium = ${{ steps.advisories.outputs.medium_count }};
+            const low = ${{ steps.advisories.outputs.low_count }};
+            
+            let comment = '## 🔍 Advisory Security Findings (Non-Blocking)\n\n';
+            comment += `Found **${medium}** MEDIUM and **${low}** LOW severity issues that do not block this PR.\n\n`;
+            comment += '### Summary\n';
+            comment += `- 🟡 **MEDIUM**: ${medium}\n`;
+            comment += `- 🔵 **LOW**: ${low}\n\n`;
+            
+            try {
+              const advisories = fs.readFileSync('advisories.txt', 'utf8');
+              const lines = advisories.split('\n').filter(l => l.trim()).slice(0, 10);
+              
+              if (lines.length > 0) {
+                comment += '### Sample Findings\n```\n';
+                comment += lines.join('\n');
+                comment += '\n```\n\n';
+              }
+            } catch (e) {
+              comment += '*(Could not read detailed findings)*\n\n';
+            }
+            
+            comment += '---\n';
+            comment += '*These are advisory findings that **do not block** the PR. Consider addressing them in a follow-up.*\n';
+            comment += '*Powered by [Counterscarp Security Engine](https://github.com/RunTimeAdmin/counterscarp)*';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              body: comment
+            });
+      
+      - name: Upload Advisory Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: advisory-report
+          path: |
+            advisory_output.txt
+            advisories.txt
+            access_output.txt
+
+  # ========================================
+  # SOLANA ANALYSIS (If Solana/Rust files detected)
+  # ========================================
+  solana-analysis:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && contains(github.event.head_commit.message, 'solana')) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.title, 'solana'))
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Run Solana Analyzer
+        run: |
+          if [ -d "./programs" ]; then
+            python solana_analyzer.py ./programs > solana-report.txt
+          else
+            echo "No programs directory found, skipping Solana analysis" > solana-report.txt
+          fi
+      
+      - name: Upload Solana Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: solana-security-report
+          path: solana-report.txt
+
+  upgrade-check:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' && (contains(github.event.pull_request.title, 'upgrade') || contains(github.event.pull_request.title, 'proxy'))
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Detect Changed Contracts
+        id: changes
+        run: |
+          # Find modified .sol files
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep '\.sol$' || true)
+          echo "changed_files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+      
+      - name: Run Upgrade Diff Analyzer
+        if: steps.changes.outputs.changed_files != ''
+        run: |
+          for file in ${{ steps.changes.outputs.changed_files }}; do
+            # Compare with main branch version
+            git show origin/main:$file > old_version.sol
+            python upgrade_diff.py old_version.sol $file || echo "Upgrade issues detected!"
+          done

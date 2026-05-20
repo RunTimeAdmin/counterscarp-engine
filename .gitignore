@@ -1,11 +1,102 @@
-# OS files
-.DS_Store
-Thumbs.db
-Desktop.ini
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+build/
+dist/
+*.egg-info/
 
-# Editor files
-*.swp
-*.swo
-*~
+# Reports
+ACTION_PLAN_*.md
+audit_report_*.html
+audit_report_*.md
+scan_output.txt
+*.log
+
+# Config overrides
+sentinel-custom.toml
+
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.coverage
+htmlcov/
+benchmark.json
+test_contracts/
+
+# Sample reports (generated)
+sample_reports/
+
+# Per-scan report output directories
+reports/
+
+# Runtime data
+.sentinel/
+.counterscarp/
+.garrison/
+.scarpshield/
+vulnerability_timeline.json
+vulnerability_trends.md
+uploads/
+
+# Local environment secrets (API keys)
+data/.env.local
+
+# Workspace artifacts
+_*.txt
+_*.py
+!phases/__init__.py
+git_*.txt
+garrison_*.txt
+ethernaut_*.txt
+run_battery_*.py
+run_scan_*.bat
+mypy_*.txt
+_cleanup.ps1
+
+# Coverage
+.coverage.*
+
+# Demo/test HTML reports (generated)
+test_report_*.html
+demo_*.html
+
+# Exploits directory
+exploits/
+
+# Scan/test temp output artifacts
+*_retest_output.txt
+*_scan_output.txt
+test_out*.txt
+test_results.txt
+test_output_temp.txt
+run_tests.py
+
+# Runtime data
+data/licenses.json
+data/users.json
+data/audit_log.jsonl
+data/session_license_map.json
+
+# Scan results
+results/
+!results/examples/
+
+# Dev scripts
+fix_version.py
+
+# Local wiki clone workspace
+_repo_wiki/

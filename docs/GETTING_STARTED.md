@@ -20,6 +20,8 @@
 
 Counterscarp Engine is a production-ready smart contract security auditing platform that combines static analysis, heuristic pattern scanning, fuzzing, symbolic execution, and AI-powered RAG enrichment into a single pipeline. It supports both EVM (Solidity) and Solana (Rust/Anchor) smart contracts, providing 31 EVM heuristic rules, 35 Solana vulnerability patterns, and integration with industry-standard tools like Slither, Aderyn, Medusa, and Mythril.
 
+Use findings as prioritized security signals, not as a guarantee of complete bug coverage. Automated scanners can produce both false positives and false negatives; validate critical issues with manual review and testing.
+
 Whether you're running a quick PR check, a full audit, or a bug bounty sweep, Counterscarp Engine adapts to your workflow through configurable execution profiles and a composable analysis pipeline.
 
 ---
@@ -119,10 +121,10 @@ Each scan creates a new isolated directory — previous results are never overwr
 ### 3. Use a config file
 
 ```bash
-counterscarp --target ./contracts --config counterscarp.toml
+counterscarp --target ./contracts --config scarpshield.toml
 ```
 
-Create a `counterscarp.toml` in your project root to customize rules, suppressions, and analysis behavior. See the [Configuration Guide](CONFIGURATION.md) for the full reference.
+Create a `scarpshield.toml` in your project root to customize rules, suppressions, and analysis behavior (`counterscarp.toml` is still supported). See the [Configuration Guide](CONFIGURATION.md) for the full reference.
 
 ### Minimal Config Example
 
@@ -190,7 +192,7 @@ docker run \
 **Environment variables** (pass with `-e`):
 
 ```bash
-docker run -e COUNTERSCARP_PRO_LICENSE=SE-PRO-xxx \
+docker run -e SCARPSHIELD_PRO_LICENSE=SE-PRO-xxx \
   -v $(pwd)/contracts:/scan \
   counterscarp/engine --target /scan --report
 ```
@@ -223,7 +225,7 @@ Pro and Enterprise users can generate PDF versions of audit reports:
 pip install "counterscarp-engine[pdf]"
 ```
 
-Once installed, PDF reports are generated automatically alongside HTML and Markdown outputs. Configure your company logo in `counterscarp.toml`:
+Once installed, PDF reports are generated automatically alongside HTML and Markdown outputs. Configure your company logo in `scarpshield.toml`:
 
 ```toml
 [reporting]
@@ -234,14 +236,14 @@ logo_path = "path/to/your-logo.png"
 **Option 1: Environment variable**
 
 ```bash
-export COUNTERSCARP_PRO_LICENSE=SE-PRO-XXXXXXXXXXXX
+export SCARPSHIELD_PRO_LICENSE=SE-PRO-XXXXXXXXXXXX
 ```
 
 Replace the prefix based on your tier: `SE-DEV-xxx`, `SE-PRO-xxx`, `SE-TEAM-xxx`, or `SE-ENT-xxx`.
 
 **Option 2: Configuration file**
 
-Add a `[license]` section to your `counterscarp.toml`:
+Add a `[license]` section to your `scarpshield.toml` (or legacy `counterscarp.toml`):
 
 ```toml
 [license]
@@ -303,7 +305,7 @@ Visit [counterscarp.io/pricing](https://counterscarp.io/pricing) to purchase a D
 | Guide | Description |
 |-------|-------------|
 | [CLI Reference](CLI_REFERENCE.md) | All commands, flags, profiles, and exit codes |
-| [Configuration](CONFIGURATION.md) | Full counterscarp.toml reference with examples |
+| [Configuration](CONFIGURATION.md) | Full scarpshield.toml reference with examples |
 | [Rules Catalog](RULES_CATALOG.md) | All 31 EVM and 35 Solana security rules |
 | [Web App Guide](WEB_APP_GUIDE.md) | Web UI features and API endpoints |
 | [Deployment](DEPLOYMENT.md) | Production server setup with nginx + SSL |

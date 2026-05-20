@@ -1,8 +1,10 @@
-# Counterscarp&#8482; Security Engine
+# Scarpshield (Counterscarp&#8482; Engine)
 
 **Production-ready smart contract security platform — 21 integrated analyzers, configurable rules, and professional audit reports.**
 
-> One command. Zero false positives. Client-ready deliverables.
+> Scarpshield is the unified product brand; `counterscarp-engine` is the package/CLI distribution.
+
+> One command. Client-ready deliverables.
 
 [![PyPI](https://img.shields.io/pypi/v/counterscarp-engine)](https://pypi.org/project/counterscarp-engine/)
 [![Python](https://img.shields.io/pypi/pyversions/counterscarp-engine)](https://pypi.org/project/counterscarp-engine/)
@@ -12,11 +14,32 @@
 
 ---
 
+## Current Status (May 2026)
+
+- Runtime image hardening is complete with a multi-stage Docker build and reduced runtime surface.
+- Container security guardrails are in place: CI blocks non-base `critical`/`high` image findings.
+- Base-image CVEs are tracked through a documented allowlist and periodic review policy.
+- Medusa is currently optional and auto-skipped in containers if unavailable, with a clear runtime warning.
+- Remaining operational follow-up: ensure GitHub Actions billing is active and set `SNYK_TOKEN` / `SNYK_ORG` secrets for CI execution.
+
+See `docs/CURRENT_STATUS.md` for operational details and next actions.
+
+---
+
 ## Installation
 
 ```bash
 pip install counterscarp-engine
 ```
+
+Preferred command aliases (brand-forward, backward compatible):
+
+```bash
+scarpshield --help
+scarpshield-engine --help
+```
+
+Legacy aliases `counterscarp` and `counterscarp-engine` remain supported.
 
 For optional extras:
 
@@ -45,14 +68,15 @@ See **[QUICKSTART.md](QUICKSTART.md)** for Docker setup, optional external tools
 
 ```bash
 # Scan a contracts directory and generate a report
-counterscarp-engine --target ./contracts --report
+scarpshield-engine --target ./contracts --report
 
 # Use a pre-built execution profile
-counterscarp-engine --target ./contracts --config counterscarp-pr.toml      # fast PR check
-counterscarp-engine --target ./contracts --config counterscarp-audit.toml   # full audit
-counterscarp-engine --target ./contracts --config counterscarp-bounty.toml  # bug bounty
+scarpshield-engine --target ./contracts --config counterscarp-pr.toml      # fast PR check
+scarpshield-engine --target ./contracts --config counterscarp-audit.toml   # full audit
+scarpshield-engine --target ./contracts --config counterscarp-bounty.toml  # bug bounty
+# default config lookup supports scarpshield.toml (preferred) and counterscarp.toml
 
-counterscarp --gui  # Launch local web interface
+scarpshield --gui  # Launch local web interface
 ```
 
 ### Docker (report persistence)
@@ -95,7 +119,7 @@ Launches a local Tkinter desktop interface. Provides 12 analyzer toggles for gra
 
 ## Solana/Anchor Security Analysis
 
-### Coverage (v5.1.0)
+### Coverage (v5.0.3)
 
 35 Rust/Anchor security patterns across 7 categories:
 
@@ -149,14 +173,20 @@ Static regex-based pattern matching against Rust source files. Scans all `.rs` f
 
 ---
 
+## Realistic Expectations
+
+Counterscarp improves review speed and coverage, but no static or hybrid analyzer can guarantee zero missed vulnerabilities or zero false positives. Treat results as a prioritized security triage queue and follow with manual review, tests, and (for high-risk systems) independent audit.
+
+---
+
 ## Security & Privacy (Data Sovereignty)
 
 Counterscarp Engine is built for environments where source-code confidentiality is non-negotiable — bank compliance teams, Web3 audit firms, and air-gapped infrastructure.
 
-- **Zero code exfiltration** — No source code, bytecode, or contract artifacts ever leave the host machine during a scan. All analysis is performed locally.
-- **Local-first AI inference** — The AI Copilot defaults to local inference via [Ollama](https://ollama.com) when configured (`counterscarp.toml → [ai] provider = "ollama"`). If OpenAI is selected, only a one-paragraph natural-language summary of each finding is sent to the OpenAI API — never raw source code.
+- **Local-first analysis** — Source code analysis runs on the host machine by default.
+- **Local-first AI inference** — The AI Copilot defaults to local inference via [Ollama](https://ollama.com) when configured (`scarpshield.toml` or `counterscarp.toml` -> `[ai] provider = "ollama"`). If OpenAI is selected, the integration is designed to send finding summaries rather than raw source code.
 - **Bundled threat intelligence** — Vulnerability databases and protocol signatures ship with the package and are queried locally. Network access only occurs if you explicitly run `counterscarp --update-signatures`. For fully air-gapped environments, use `counterscarp --update-from-file <path>` to import pre-downloaded signature packs.
-- **No telemetry** — The CLI contains zero usage telemetry, analytics callbacks, tracking pixels, or phone-home behavior. Period.
+- **No usage analytics** — The CLI is designed without usage telemetry or analytics callbacks.
 - **API security hardening** — The web API enforces rate limiting (10 req/min on license validation, 5 req/min on deactivation, 30 req/min on webhooks), Pydantic input validation on all request fields, mandatory Stripe webhook signature verification, admin endpoint authentication, CORS restricted to known origins, and a dedicated `counterscarp.security` logger for all auth and validation events.
 
 ---
@@ -178,8 +208,8 @@ Counterscarp Engine is built for environments where source-code confidentiality 
 Get your license: **https://counterscarp.io/pricing**
 
 ```bash
-export COUNTERSCARP_PRO_LICENSE=your-key-here
-counterscarp-engine --target ./contracts --report --format html
+export SCARPSHIELD_PRO_LICENSE=your-key-here
+scarpshield-engine --target ./contracts --report --format html
 ```
 
 ### Account-Based Licensing
@@ -197,10 +227,12 @@ Create an account at [app.counterscarp.io](https://app.counterscarp.io) using Go
 | Document | Description |
 |----------|-------------|
 | **[QUICKSTART.md](QUICKSTART.md)** | Full install, config reference, CI/CD, offline setup, troubleshooting |
-| **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** | Complete `counterscarp.toml` reference |
+| **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** | Complete config reference (`scarpshield.toml` preferred, `counterscarp.toml` supported) |
 | **[docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md)** | All CLI flags and examples |
 | **[docs/WEB_APP_GUIDE.md](docs/WEB_APP_GUIDE.md)** | Self-hosted web interface |
 | **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Production server setup |
+| **[docs/SECURITY_CONTAINER_ALLOWLIST.md](docs/SECURITY_CONTAINER_ALLOWLIST.md)** | Container CVE allowlist scope and guardrail policy |
+| **[docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md)** | Current hardening status, known blockers, and immediate next steps |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Adding rules and integrations |
 
 ---

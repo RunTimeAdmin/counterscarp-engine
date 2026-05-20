@@ -50,7 +50,7 @@ Docker is the recommended deployment method for CI environments, local developme
 
 ```bash
 cd sentinel-engine
-docker build -t counterscarp-engine:5.1.0 .
+docker build -t counterscarp-engine:5.0.3 .
 ```
 
 ### Running with docker-compose
@@ -94,7 +94,7 @@ Use `--output-dir /output` to direct reports to the host-mounted volume (require
 docker run --rm \
   -v /path/to/contracts:/scan \
   -v /path/to/reports:/output \
-  counterscarp-engine:5.1.0 \
+  counterscarp-engine:5.0.3 \
   --target /scan --output-dir /output --report
 
 # docker-compose equivalent (volume mounts already pre-configured)
@@ -129,15 +129,15 @@ Use `docker compose ps` to view current health status for each service.
 
 | Variable | Description |
 |----------|-------------|
-| `COUNTERSCARP_PRO_LICENSE` | Set your Pro license key to enable premium features |
+| `SCARPSHIELD_PRO_LICENSE` | Set your Pro license key to enable premium features (legacy `COUNTERSCARP_PRO_LICENSE` also supported) |
 
 ```bash
 docker compose run --rm \
-  -e COUNTERSCARP_PRO_LICENSE=your-key \
+  -e SCARPSHIELD_PRO_LICENSE=your-key \
   counterscarp scan /scan/MyContract.sol
 ```
 
-For persistent configuration, add `COUNTERSCARP_PRO_LICENSE` to a `.env` file in the project root — Docker Compose picks it up automatically.
+For persistent configuration, add `SCARPSHIELD_PRO_LICENSE` to a `.env` file in the project root (legacy `COUNTERSCARP_PRO_LICENSE` also works) — Docker Compose picks it up automatically.
 
 ### Production Considerations
 
@@ -532,7 +532,7 @@ Expected response:
 | Upload fails | Permissions wrong | `chown -R counterscarp:counterscarp /opt/counterscarp-engine/uploads` |
 | Webhook returns 500 | `STRIPE_WEBHOOK_SECRET` not set | Set `STRIPE_WEBHOOK_SECRET` in systemd unit and reload |
 
-> **Security:** Stripe webhook signature verification is **mandatory** in v5.1.0. If `STRIPE_WEBHOOK_SECRET` is not configured, the `/api/stripe/webhook` endpoint will return HTTP 500. Retrieve the signing secret from Stripe Dashboard > Developers > Webhooks > Signing secret (`whsec_...`).
+> **Security:** Stripe webhook signature verification is **mandatory** in v5.0.3. If `STRIPE_WEBHOOK_SECRET` is not configured, the `/api/stripe/webhook` endpoint will return HTTP 500. Retrieve the signing secret from Stripe Dashboard > Developers > Webhooks > Signing secret (`whsec_...`).
 
 ### Check Disk Space
 
@@ -624,11 +624,11 @@ On every service startup, the application automatically purges stale working dat
 
 | Data Type | Directory | Retention Period |
 |-----------|-----------|-----------------|
-| State / cache files | `.counterscarp/` | 30 days |
+| State / cache files | `.scarpshield/` (legacy `.counterscarp/` supported) | 30 days |
 | Report directories | `reports/` | 90 days |
 | Upload directories | `uploads/` | 7 days |
 
-> **Note:** These retention periods are currently hardcoded. Configurable retention via `counterscarp.toml` is planned for a future release.
+> **Note:** These retention periods are currently hardcoded. Configurable retention via `scarpshield.toml` (or legacy `counterscarp.toml`) is planned for a future release.
 
 No additional cron jobs are needed for routine cleanup; however, you can still manually purge data if needed:
 
